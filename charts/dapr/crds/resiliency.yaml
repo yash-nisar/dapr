@@ -1,11 +1,9 @@
-
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.5.0
-  creationTimestamp: null
+    controller-gen.kubebuilder.io/version: v0.9.2
   name: resiliencies.dapr.io
   labels:
     app.kubernetes.io/part-of: "dapr"
@@ -25,10 +23,14 @@ spec:
       openAPIV3Schema:
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
@@ -58,6 +60,35 @@ spec:
                       properties:
                         duration:
                           type: string
+                        matches:
+                          properties:
+                            errors:
+                              items:
+                                type: string
+                              type: array
+                            headers:
+                              items:
+                                properties:
+                                  header:
+                                    type: string
+                                  match:
+                                    properties:
+                                      exactMatch:
+                                        type: string
+                                      prefixMatch:
+                                        type: string
+                                      regexMatch:
+                                        type: string
+                                      suffixMatch:
+                                        type: string
+                                    type: object
+                                type: object
+                              type: array
+                            httpStatusCodes:
+                              items:
+                                type: integer
+                              type: array
+                          type: object
                         maxInterval:
                           type: string
                         maxRetries:
@@ -132,4 +163,3 @@ spec:
         type: object
     served: true
     storage: true
-
