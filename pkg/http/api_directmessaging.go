@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"strings"
 	"sync/atomic"
 
@@ -154,8 +155,18 @@ func (a *api) onDirectMessage(w http.ResponseWriter, r *http.Request) {
 	success := atomic.Bool{}
 	// Since we don't want to return the actual error, we have to extract several things in order to construct our response.
 	resp, err := policyRunner(func(ctx context.Context) (*invokev1.InvokeMethodResponse, error) {
+
+		httpErrMap := make(map[string]bool)
+
+		//Convert the list of errors to a map for faster lookup
+		if policyDef.HasHttpRetryErrors() {
+			for _, err := range policyDef.GetHttpRetryErrors() {
+				httpErrMap[err] = true
+			}
+		}
+
 		rResp, rErr := a.directMessaging.Invoke(ctx, targetID, req)
-		if rErr != nil {
+		if rErr != nil && httpErrMap["reset"] {
 			// Allowlist policies that are applied on the callee side can return a Permission Denied error.
 			// For everything else, treat it as a gRPC transport error
 			apiErr := messages.ErrDirectInvoke.WithFormat(targetID, rErr)
@@ -181,7 +192,7 @@ func (a *api) onDirectMessage(w http.ResponseWriter, r *http.Request) {
 				body, rErr = invokev1.ProtobufToJSON(resStatus)
 				rResp.WithRawDataBytes(body)
 				resStatus.Code = statusCode
-				if rErr != nil {
+				if rErr != nil && httpErrMap["reset"] {
 					return rResp, invokeError{
 						statusCode: http.StatusInternalServerError,
 						msg:        NewErrorResponse("ERR_MALFORMED_RESPONSE", rErr.Error()).JSONErrorValue(),
@@ -190,14 +201,116 @@ func (a *api) onDirectMessage(w http.ResponseWriter, r *http.Request) {
 			} else {
 				resStatus.Code = statusCode
 			}
-		} else if resStatus.GetCode() < 200 || resStatus.GetCode() > 399 {
-			msg, _ := rResp.RawDataFull()
-			// Returning a `codeError` here will cause Resiliency to retry the request (if retries are enabled), but if the request continues to fail, the response is sent to the user with whatever status code the app returned.
-			return rResp, codeError{
-				headers:     rResp.Headers(),
-				statusCode:  int(resStatus.GetCode()),
-				msg:         msg,
-				contentType: rResp.ContentType(),
+		} else {
+			//Retriable headers regardless of status code
+			if policyDef.HasHttpRetryHeaders() {
+				headers := policyDef.GetHttpRetryHeaders()
+
+				for _, confHeader := range headers {
+					confHeaderKey := confHeader.Header
+					var confHeaderVal string
+
+					for respKey, respVal := range rResp.Headers() {
+						rVal := respVal.String()
+						rVal = strings.TrimPrefix(rVal, "values:")
+						rVal = strings.Replace(rVal, "\"", "", -1)
+
+						if confHeader.Match.ExactMatch != "" {
+							confHeaderVal = confHeader.Match.ExactMatch
+							if confHeaderKey == respKey && confHeaderVal == rVal {
+								msg, _ := rResp.RawDataFull()
+								// Returning a `codeError` here will cause Resiliency to retry the request (if retries are enabled), but if the request continues to fail, the response is sent to the user with whatever status code the app returned.
+								return rResp, codeError{
+									headers:     rResp.Headers(),
+									statusCode:  int(resStatus.Code),
+									msg:         msg,
+									contentType: rResp.ContentType(),
+								}
+							}
+						} else if confHeader.Match.PrefixMatch != "" {
+							confHeaderVal = confHeader.Match.PrefixMatch
+							if confHeaderKey == respKey && strings.HasPrefix(rVal, confHeaderVal) {
+								msg, _ := rResp.RawDataFull()
+								// Returning a `codeError` here will cause Resiliency to retry the request (if retries are enabled), but if the request continues to fail, the response is sent to the user with whatever status code the app returned.
+								return rResp, codeError{
+									headers:     rResp.Headers(),
+									statusCode:  int(resStatus.Code),
+									msg:         msg,
+									contentType: rResp.ContentType(),
+								}
+							}
+						} else if confHeader.Match.SuffixMatch != "" {
+							confHeaderVal = confHeader.Match.SuffixMatch
+							if confHeaderKey == respKey && strings.HasSuffix(rVal, confHeaderVal) {
+								msg, _ := rResp.RawDataFull()
+								// Returning a `codeError` here will cause Resiliency to retry the request (if retries are enabled), but if the request continues to fail, the response is sent to the user with whatever status code the app returned.
+								return rResp, codeError{
+									headers:     rResp.Headers(),
+									statusCode:  int(resStatus.Code),
+									msg:         msg,
+									contentType: rResp.ContentType(),
+								}
+							}
+						} else if confHeader.Match.RegexMatch != "" {
+							confHeaderVal = confHeader.Match.RegexMatch
+							matched, err := regexp.MatchString(confHeaderVal, rVal)
+							if err != nil {
+								fmt.Println("Invalid regex:", err)
+								//fix this bruhhh
+							}
+							if confHeaderKey == respKey && matched {
+								msg, _ := rResp.RawDataFull()
+								// Returning a `codeError` here will cause Resiliency to retry the request (if retries are enabled), but if the request continues to fail, the response is sent to the user with whatever status code the app returned.
+								return rResp, codeError{
+									headers:     rResp.Headers(),
+									statusCode:  int(resStatus.Code),
+									msg:         msg,
+									contentType: rResp.ContentType(),
+								}
+							}
+						}
+					}
+				}
+			}
+
+			if (resStatus.Code < 200 || resStatus.Code > 399) {
+				if policyDef.HasHttpRetryErrors() || policyDef.HasHttpRetryStatusCodes() {
+					errCodes := policyDef.GetHttpRetryStatusCodes()
+
+					if ((httpErrMap["5xx"] && (resStatus.Code >= 500 && resStatus.Code <= 599)) || 
+					(httpErrMap["retriable_4xx"] && resStatus.Code == 409)) {
+						msg, _ := rResp.RawDataFull()
+						// Returning a `codeError` here will cause Resiliency to retry the request (if retries are enabled), but if the request continues to fail, the response is sent to the user with whatever status code the app returned.
+						return rResp, codeError{
+							headers:     rResp.Headers(),
+							statusCode:  int(resStatus.Code),
+							msg:         msg,
+							contentType: rResp.ContentType(),
+						}
+					}
+
+					for _, respCode := range errCodes {
+						if respCode == int(resStatus.Code) {
+							msg, _ := rResp.RawDataFull()
+							// Returning a `codeError` here will cause Resiliency to retry the request (if retries are enabled), but if the request continues to fail, the response is sent to the user with whatever status code the app returned.
+							return rResp, codeError{
+								headers:     rResp.Headers(),
+								statusCode:  int(resStatus.Code),
+								msg:         msg,
+								contentType: rResp.ContentType(),
+							}
+						}
+					}
+				} else {
+					msg, _ := rResp.RawDataFull()
+					// Returning a `codeError` here will cause Resiliency to retry the request (if retries are enabled), but if the request continues to fail, the response is sent to the user with whatever status code the app returned.
+					return rResp, codeError{
+						headers:     rResp.Headers(),
+						statusCode:  int(resStatus.Code),
+						msg:         msg,
+						contentType: rResp.ContentType(),
+					}
+				}
 			}
 		}
 

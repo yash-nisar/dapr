@@ -25,6 +25,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 
 	"github.com/dapr/dapr/pkg/resiliency/breaker"
+	httpRetryMatch "github.com/dapr/dapr/pkg/retry"
 	"github.com/dapr/kit/logger"
 	"github.com/dapr/kit/retry"
 )
@@ -50,6 +51,7 @@ type PolicyDefinition struct {
 	name                      string
 	t                         time.Duration
 	r                         *retry.Config
+	httpRetryMatches          *httpRetryMatch.HttpRetryMatch
 	cb                        *breaker.CircuitBreaker
 	addTimeoutActivatedMetric func()
 	addRetryActivatedMetric   func()
@@ -78,6 +80,30 @@ func (p PolicyDefinition) String() string {
 // HasRetries returns true if the policy is configured to have more than 1 retry.
 func (p PolicyDefinition) HasRetries() bool {
 	return p.r != nil && p.r.MaxRetries != 0
+}
+
+func (p PolicyDefinition) HasHttpRetryStatusCodes() bool {
+	return p.httpRetryMatches != nil && len(p.httpRetryMatches.HTTPStatusCodes) > 0
+}
+
+func (p PolicyDefinition) GetHttpRetryStatusCodes() []int {
+	return p.httpRetryMatches.HTTPStatusCodes
+}
+
+func (p PolicyDefinition) HasHttpRetryErrors() bool {
+	return p.httpRetryMatches != nil && len(p.httpRetryMatches.Errors) > 0
+}
+
+func (p PolicyDefinition) GetHttpRetryErrors() []string {
+	return p.httpRetryMatches.Errors
+}
+
+func (p PolicyDefinition) HasHttpRetryHeaders() bool {
+	return p.httpRetryMatches != nil && len(p.httpRetryMatches.Headers) > 0
+}
+
+func (p PolicyDefinition) GetHttpRetryHeaders() []httpRetryMatch.HeaderMatch {
+	return p.httpRetryMatches.Headers
 }
 
 type RunnerOpts[T any] struct {
