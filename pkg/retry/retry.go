@@ -19,3 +19,21 @@ const (
 	DefaultLinearBackoffInterval = time.Second
 	DefaultLinearRetryCount      = 3
 )
+
+type HttpRetryMatch struct {
+	Headers         []HeaderMatch `mapstructure:"headers"`
+	HTTPStatusCodes []int         `mapstructure:"httpStatusCodes"`
+	Errors          []string      `mapstructure:"errors"`
+}
+
+type HeaderMatch struct {
+	Header string     
+	Match  ValueMatch
+}
+
+type ValueMatch struct {
+	ExactMatch  string 
+	PrefixMatch string 
+	SuffixMatch string 
+	RegexMatch  string 
+}

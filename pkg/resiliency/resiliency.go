@@ -33,6 +33,7 @@ import (
 	diag "github.com/dapr/dapr/pkg/diagnostics"
 	operatorv1pb "github.com/dapr/dapr/pkg/proto/operator/v1"
 	"github.com/dapr/dapr/pkg/resiliency/breaker"
+	httpRetryMatch "github.com/dapr/dapr/pkg/retry"
 	"github.com/dapr/dapr/utils"
 	"github.com/dapr/kit/config"
 	"github.com/dapr/kit/logger"
@@ -112,6 +113,7 @@ type (
 
 		timeouts        map[string]time.Duration
 		retries         map[string]*retry.Config
+		httpRetryMatch 	map[string]*httpRetryMatch.HttpRetryMatch
 		circuitBreakers map[string]*breaker.CircuitBreaker
 
 		actorCBCaches    map[string]*lru.Cache[string, *breaker.CircuitBreaker]
@@ -306,6 +308,7 @@ func New(log logger.Logger) *Resiliency {
 		log:             log,
 		timeouts:        make(map[string]time.Duration),
 		retries:         make(map[string]*retry.Config),
+		httpRetryMatch:  make(map[string]*httpRetryMatch.HttpRetryMatch),
 		circuitBreakers: make(map[string]*breaker.CircuitBreaker),
 		actorCBCaches:   make(map[string]*lru.Cache[string, *breaker.CircuitBreaker]),
 		serviceCBs:      make(map[string]*lru.Cache[string, *breaker.CircuitBreaker]),
@@ -411,6 +414,31 @@ func (r *Resiliency) decodePolicies(c *resiliencyV1alpha.Resiliency) (err error)
 			if r.isBuiltInPolicy(name) && rc.MaxRetries < 3 {
 				r.log.Warnf("Attempted override of %s did not meet minimum retry count, resetting to 3.", name)
 				rc.MaxRetries = 3
+			}
+
+			if t.Matches != nil {
+				if r.httpRetryMatch[name] == nil {
+					r.httpRetryMatch[name] = &httpRetryMatch.HttpRetryMatch{}
+				}
+				if len(t.Matches.Errors) > 0 {
+					r.httpRetryMatch[name].Errors = t.Matches.Errors
+				}
+				if len(t.Matches.HTTPStatusCodes) > 0 {
+					r.httpRetryMatch[name].HTTPStatusCodes = t.Matches.HTTPStatusCodes
+				}
+				if len(t.Matches.Headers) > 0 {
+					for _, header := range t.Matches.Headers {
+						r.httpRetryMatch[name].Headers = append(r.httpRetryMatch[name].Headers, httpRetryMatch.HeaderMatch{
+							Header: header.Header,
+							Match: httpRetryMatch.ValueMatch{
+								ExactMatch:  header.Match.ExactMatch,
+								PrefixMatch: header.Match.PrefixMatch,
+								SuffixMatch: header.Match.SuffixMatch,
+								RegexMatch:  header.Match.RegexMatch,
+							},
+						})
+					}
+				}
 			}
 
 			r.retries[name] = &rc
@@ -576,6 +604,10 @@ func (r *Resiliency) EndpointPolicy(app string, endpoint string) *PolicyDefiniti
 		}
 		if policyNames.Retry != "" {
 			policyDef.r = r.retries[policyNames.Retry]
+
+			if r.httpRetryMatch != nil {
+				policyDef.httpRetryMatches = r.httpRetryMatch[policyNames.Retry]
+			}
 		}
 		if policyNames.CircuitBreaker != "" {
 			template, ok := r.circuitBreakers[policyNames.CircuitBreaker]

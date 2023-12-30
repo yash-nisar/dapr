@@ -51,10 +51,29 @@ type Policies struct {
 }
 
 type Retry struct {
-	Policy      string `json:"policy,omitempty" yaml:"policy,omitempty"`
-	Duration    string `json:"duration,omitempty" yaml:"duration,omitempty"`
-	MaxInterval string `json:"maxInterval,omitempty" yaml:"maxInterval,omitempty"`
-	MaxRetries  *int   `json:"maxRetries,omitempty" yaml:"maxRetries,omitempty"`
+	Policy      string 		  `json:"policy,omitempty" yaml:"policy,omitempty"`
+	Duration    string 		  `json:"duration,omitempty" yaml:"duration,omitempty"`
+	MaxInterval string 		  `json:"maxInterval,omitempty" yaml:"maxInterval,omitempty"`
+	MaxRetries  *int   		  `json:"maxRetries,omitempty" yaml:"maxRetries,omitempty"`
+	Matches     *HTTPMatches  `json:"matches,omitempty" yaml:"matches,omitempty"`
+}
+
+type HTTPMatches struct {
+	Headers         []HeaderMatch `json:"headers,omitempty" yaml:"headers,omitempty"`
+	HTTPStatusCodes []int         `json:"httpStatusCodes,omitempty" yaml:"httpStatusCodes,omitempty"`
+	Errors          []string      `json:"errors,omitempty" yaml:"errors,omitempty"`
+}
+
+type HeaderMatch struct {
+	Header string     `json:"header,omitempty" yaml:"header,omitempty"`
+	Match  ValueMatch `json:"match,omitempty" yaml:"match,omitempty"`
+}
+
+type ValueMatch struct {
+	ExactMatch  string `json:"exactMatch,omitempty" yaml:"exactMatch,omitempty"`
+	PrefixMatch string `json:"prefixMatch,omitempty" yaml:"prefixMatch,omitempty"`
+	SuffixMatch string `json:"suffixMatch,omitempty" yaml:"suffixMatch,omitempty"`
+	RegexMatch  string `json:"regexMatch,omitempty" yaml:"regexMatch,omitempty"`
 }
 
 type CircuitBreaker struct {
